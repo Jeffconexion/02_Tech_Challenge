@@ -9,7 +9,32 @@ on:
   pull_request:
     branches: ["master"]
 
-jobs:
+env:
+  ConnectionStrings__PostgreSqlConnection: "Host=localhost;Database=DB_FIAP_ARQUITETO;Username=postgres;Password=Teste@123"
+  ASPNETCORE_URLS: http://+:5006
+  ASPNETCORE_ENVIRONMENT: Development
+
+jobs:  
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Passo 1: Faz o checkout do repositório para acessar o código fonte
+      - name: Step 1 Checkout Repository
+        uses: actions/checkout@v4
+
+      # Passo 2: Configura o ambiente .NET com a versão especificada
+      - name: Step 2 Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # Passo 3: Restaura dependências necessárias para o projeto LocalFriendz
+      - name: Restore dependencies for main project
+        run: dotnet restore ./LocalFriendzApi/src/LocalFriendzApi/LocalFriendzApi.csproj
+
+      - name: Build main project
+        run: dotnet build ./LocalFriendzApi/src/LocalFriendzApi/LocalFriendzApi.csproj --configuration Release --no-restore
+
   validation_security:
     runs-on: ubuntu-latest
     needs: build
@@ -34,11 +59,27 @@ jobs:
       # Passo 3: Executa a verificação de vulnerabilidades nos arquivos do projeto
       - name: Run Trivy Security Scan
         run: trivy fs --exit-code 0 --no-progress --severity MEDIUM,HIGH,CRITICAL .
-  
-  build:
+
+  tests:
     runs-on: ubuntu-latest
+    needs: build
+    services:
+      psotgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: Teste@123
+          POSTGRES_DB: DB_FIAP_ARQUITETO
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+          --network-alias db
     steps:
-      # Passo 1: Faz o checkout do repositório para acessar o código fonte
+      # Passo 1: Checkout do repositório para acessar o código fonte
       - name: Step 1 Checkout Repository
         uses: actions/checkout@v4
 
@@ -48,32 +89,18 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      # Passo 3: Restaura dependências necessárias para o projeto LocalFriendz
-      - name: Restore dependencies for main project
-        run: dotnet restore ./LocalFriendzApi/src/LocalFriendzApi/LocalFriendzApi.csproj
+      - name: list docker containers
+        run: docker container ls
 
-      - name: Build main project
-        run: dotnet build ./LocalFriendzApi/src/LocalFriendzApi/LocalFriendzApi.csproj --configuration Release --no-restore
+      - name: Run SQL Script to Create Database and Tables
+        run: |
+          PGPASSWORD=Teste@123 psql -h localhost -U postgres -d DB_FIAP_ARQUITETO -f ./LocalFriendzApi/scripts/FiapDB.sql
 
-  # tests:
-  #   runs-on: ubuntu-latest
-  #   needs: build
-  #   steps:
-  #     # Passo 1: Checkout do repositório para acessar o código fonte
-  #     - name: Step 1 Checkout Repository
-  #       uses: actions/checkout@v4
+      - name: Restore dependencies for test project
+        run: dotnet restore ./LocalFriendzApi/src/LocalFriendzApi.Test/LocalFriendzApi.IntegrationTests.csproj
 
-  #     # Passo 2: Configura o ambiente .NET com a versão especificada
-  #     - name: Step 2 Setup .NET
-  #       uses: actions/setup-dotnet@v4
-  #       with:
-  #         dotnet-version: 8.0.x
+      - name: Build Test Project
+        run: dotnet build ./LocalFriendzApi/src/LocalFriendzApi.Test/LocalFriendzApi.IntegrationTests.csproj --configuration Release --no-restore
 
-  #     - name: Restore dependencies for test project
-  #       run: dotnet restore ./LocalFriendzApi/src/LocalFriendzApi.Test/LocalFriendzApi.IntegrationTests.csproj
-
-  #     - name: Build Test Project
-  #       run: dotnet build ./LocalFriendzApi/src/LocalFriendzApi.Test/LocalFriendzApi.IntegrationTests.csproj --configuration Release --no-restore
-
-  #     - name: Run tests
-  #       run: dotnet test ./LocalFriendzApi/src/LocalFriendzApi.Test/LocalFriendzApi.IntegrationTests.csproj --configuration Release --no-build --verbosity detailed
+      - name: Run tests
+        run: dotnet test ./LocalFriendzApi/src/LocalFriendzApi.Test/LocalFriendzApi.IntegrationTests.csproj --configuration Release --no-build --verbosity detailed
