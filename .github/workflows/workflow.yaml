@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     services:
-      psotgres:
+      postgres:
         image: postgres:15
         env:
           POSTGRES_USER: postgres
